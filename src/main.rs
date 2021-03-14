@@ -32,7 +32,11 @@ fn setup() -> Result<(Config, PathBuf)> {
     SimpleLogger::new()
         .with_level(opt.verbose.get_level_filter())
         .init()?;
-    let config = Config::default();
+    let mut config = Config::default();
+    for i in opt.cpp_include {
+        config.cpp_options.push(format!("-I{}", i));
+    }
+    log::debug!("cpp_options {:?}", config.cpp_options);
     Ok((config, opt.file))
 }
 
@@ -41,12 +45,9 @@ fn setup() -> Result<(Config, PathBuf)> {
 struct Opt {
     #[structopt(flatten)]
     verbose: structopt_flags::QuietVerbose,
-    #[structopt(
-        short,
-        long,
-        parse(try_from_str = parse_path),
-        default_value = "./main.c"
-    )]
+    #[structopt(name = "INCLUDE_PATH", short = "I")]
+    cpp_include: Vec<String>,
+    #[structopt(name = "FILE", parse(try_from_str = parse_path))]
     file: PathBuf,
 }
 
