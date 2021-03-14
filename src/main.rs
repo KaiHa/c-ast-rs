@@ -13,12 +13,8 @@ use structopt::StructOpt;
 use structopt_flags::LogLevel;
 
 fn main() -> Result<()> {
-    let opt = Opt::from_args();
-    SimpleLogger::new()
-        .with_level(opt.verbose.get_level_filter())
-        .init()?;
-    let config = Config::default();
-    let unit = parse(&config, opt.file)?.unit;
+    let (config, file) = setup()?;
+    let unit = parse(&config, file)?.unit;
     let strcts = &mut HashMap::new();
     let vals = &mut HashMap::new();
     let mut myp = MyVisitor::new(strcts, vals);
@@ -29,6 +25,15 @@ fn main() -> Result<()> {
         println!("{}", v);
     }
     Ok(())
+}
+
+fn setup() -> Result<(Config, PathBuf)> {
+    let opt = Opt::from_args();
+    SimpleLogger::new()
+        .with_level(opt.verbose.get_level_filter())
+        .init()?;
+    let config = Config::default();
+    Ok((config, opt.file))
 }
 
 #[derive(Debug, StructOpt)]
@@ -50,7 +55,6 @@ fn parse_path(s: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(String::from(s)))
 }
 
-
 #[derive(Debug)]
 pub struct MyStructType {
     name: String,
@@ -65,7 +69,6 @@ impl MyStructType {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub enum MyValue {
@@ -94,7 +97,7 @@ impl fmt::Display for MyValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MyValue::Struct(s) => writeln!(f, "{}", s)?,
-            MyValue::Scalar {name: n, value: v} => writeln!(f, "{} = {:?}", n, v)?,
+            MyValue::Scalar { name: n, value: v } => writeln!(f, "{} = {:?}", n, v)?,
         }
         Ok(())
     }
@@ -104,7 +107,7 @@ impl fmt::Display for MyValue {
 pub struct MyStruct {
     typ: String,
     name: String,
-    values: Vec<(String, MyExpression)>
+    values: Vec<(String, MyExpression)>,
 }
 
 impl fmt::Display for MyStruct {
@@ -117,7 +120,6 @@ impl fmt::Display for MyStruct {
     }
 }
 
-
 #[derive(Debug)]
 pub enum MyExpression {
     Integer(String),
@@ -126,7 +128,6 @@ pub enum MyExpression {
     StringLiteral(Vec<String>),
     Other(String),
 }
-
 
 pub struct MyVisitor<'a> {
     cur_struct: Option<String>,
@@ -172,7 +173,10 @@ impl<'ast, 'a> Visit<'ast> for MyVisitor<'a> {
                 }
             }
         } else {
-            log::warn!("I visit struct fields but I don't know in which struct I am!\n {:#?}", n)
+            log::warn!(
+                "I visit struct fields but I don't know in which struct I am!\n {:#?}",
+                n
+            )
         }
     }
 
@@ -183,17 +187,24 @@ impl<'ast, 'a> Visit<'ast> for MyVisitor<'a> {
                     match &ini.node {
                         Initializer::List(xs) => {
                             if let Some(struct_name) = &self.cur_struct {
-                                if let MyValue::Struct(mst) = self.values
+                                if let MyValue::Struct(mst) = self
+                                    .values
                                     .entry((self.cur_struct.clone(), String::from(&x.node.name)))
-                                    .or_insert(MyValue::new_struct(struct_name, &x.node.name)) {
-                                        if let Some (stype) = self.struct_types.get(self.cur_struct.as_ref().unwrap()) {
-                                            for (x, fname) in xs.into_iter().zip(stype.fields.clone()) {
-                                                fill(&mut mst.values, &fname, &x.node.initializer.node);
-                                            }
-                                        } else {
-                                            panic!("Struct type '{}' not found", self.cur_struct.as_ref().unwrap())
+                                    .or_insert(MyValue::new_struct(struct_name, &x.node.name))
+                                {
+                                    if let Some(stype) =
+                                        self.struct_types.get(self.cur_struct.as_ref().unwrap())
+                                    {
+                                        for (x, fname) in xs.into_iter().zip(stype.fields.clone()) {
+                                            fill(&mut mst.values, &fname, &x.node.initializer.node);
                                         }
+                                    } else {
+                                        panic!(
+                                            "Struct type '{}' not found",
+                                            self.cur_struct.as_ref().unwrap()
+                                        )
                                     }
+                                }
                             }
                         }
                         Initializer::Expression(e) => {
@@ -201,7 +212,7 @@ impl<'ast, 'a> Visit<'ast> for MyVisitor<'a> {
                                 .entry((self.cur_struct.clone(), String::from(&x.node.name)))
                                 .or_insert(MyValue::new_scalar(&x.node.name, transform(&e.node)));
                             ()
-                        },
+                        }
                     }
                 }
             }
@@ -210,14 +221,16 @@ impl<'ast, 'a> Visit<'ast> for MyVisitor<'a> {
     }
 }
 
-
 fn fill(acc: &mut Vec<(String, MyExpression)>, fname: &str, ini: &Initializer) {
     match &ini {
         Initializer::Expression(e) => acc.push((String::from(fname), transform(&e.node))),
-        Initializer::List(ls) => for l in ls { fill(acc, fname, &l.node.initializer.node) },
+        Initializer::List(ls) => {
+            for l in ls {
+                fill(acc, fname, &l.node.initializer.node)
+            }
+        }
     }
 }
-
 
 fn transform(expr: &Expression) -> MyExpression {
     match expr {
